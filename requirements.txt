@@ -1,0 +1,4 @@
+# Python Edge Server dependencies for ESP32 Energy Meter
+Flask>=3.0.0
+paho-mqtt>=2.0.0
+numpy>=1.26.0

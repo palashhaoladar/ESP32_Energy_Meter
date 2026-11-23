@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32 Energy Meter</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+           color: #fff; min-height: 100vh; padding: 16px; }
+    body.fault-active { border: 5px solid #ff4d4d; }
+    h1 { text-align: center; margin-bottom: 8px; font-size: 1.6em; }
+    .topbar { text-align: center; font-size: 0.85em; color: #a0c4ff; margin-bottom: 14px; }
+    .topbar b { color: #00d9ff; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 560px; margin: 0 auto 12px auto; }
+    .card { background: rgba(255,255,255,0.1); border-radius: 16px; padding: 16px; text-align: center;
+            border: 1px solid rgba(255,255,255,0.2); }
+    .card.full { grid-column: 1 / -1; }
+    .value { font-size: 1.7em; font-weight: 700; color: #00d9ff; margin: 8px 0; }
+    .label { font-size: 0.8em; text-transform: uppercase; letter-spacing: 1px; color: #a0c4ff; }
+    .unit { font-size: 0.6em; color: #ccc; }
+    button { background: #e94560; color: white; border: none; padding: 12px 22px; font-size: 0.95em;
+             border-radius: 12px; cursor: pointer; margin: 4px; }
+    button.on { background: #0ead69; }
+    button.reset { background: #555; }
+    button.tab { background: rgba(255,255,255,0.12); padding: 8px 12px; font-size: 0.78em; }
+    button.tab.on { background: #00d9ff; color: #06223f; font-weight: bold; }
+    button.rng { background: rgba(255,255,255,0.12); padding: 6px 10px; font-size: 0.75em; }
+    button.rng.on { background: #ffd166; color: #333; font-weight: bold; }
+    canvas { width: 100%; height: 240px; background: #0d1b3a; border-radius: 10px; margin-top: 10px; }
+    table { width: 100%; margin-top: 8px; font-size: 0.9em; }
+    td { padding: 5px; border-bottom: 1px solid rgba(255,255,255,0.15); text-align: left; }
+    td:last-child { text-align: right; color: #00d9ff; font-weight: bold; }
+    .total td { color: #ffd166; font-size: 1.05em; }
+
+    /* ===== FAULT banner (hidden by default) ===== */
+    #faultBanner {
+      display: none;
+      max-width: 560px; margin: 0 auto 12px auto;
+      background: #d90429; color: #fff;
+      border: 3px solid #ff4d6d; border-radius: 14px;
+      padding: 14px; text-align: center;
+      font-size: 1.3em; font-weight: 800; letter-spacing: 1px;
+      animation: faultFlash 0.7s infinite alternate;
+    }
+    #faultBanner small { display: block; font-size: 0.55em; font-weight: 400; margin-top: 4px; color: #ffd6dd; }
+    @keyframes faultFlash {
+      from { background: #d90429; box-shadow: 0 0 8px #ff4d6d; }
+      to   { background: #8d0801; box-shadow: 0 0 26px #ff4d6d; }
+    }
+  </style>
+</head>
+<body>
+  <h1>ESP32 Energy Monitor</h1>
+
+  <!-- Hidden fault banner: payload me "fault": true aate hi dikhega -->
+  <div id="faultBanner">
+    &#9888;&#65039; FAULT / RELAY TRIPPED &#9888;&#65039;
+    <small>Over-Voltage ya Over-Current detect hua &mdash; load OFF. Reset dabao fault clear karne ke liye.</small>
+  </div>
+
+  <div class="topbar">
+    <b id="clock">--:--:--</b> &nbsp;|&nbsp; <span id="status">Connecting...</span> &nbsp;|&nbsp; SD: <b id="sdstat">?</b>
+  </div>
+
+  <div class="grid">
+    <div class="card full">
+      <div class="label">Power Quality (THD)</div>
+      <div class="value" id="thd">-- <span class="unit">%</span></div>
+      <div id="thdStatus" style="font-size:0.82em; margin-top:2px; color:#7ea8e0;">Waiting for FFT data...</div>
+      <canvas id="fftChart" width="660" height="220" style="height:200px;"></canvas>
+    </div>
+    <div class="card full"><div class="label">Voltage</div><div class="value" id="v">0.0 <span class="unit">V</span></div></div>
+    <div class="card"><div class="label">Current</div><div class="value" id="i">0.00 <span class="unit">A</span></div></div>
+    <div class="card"><div class="label">Real Power</div><div class="value" id="p">0.0 <span class="unit">W</span></div></div>
+    <div class="card"><div class="label">Power Factor</div><div class="value" id="pf">0.00</div></div>
+    <div class="card"><div class="label">Apparent</div><div class="value" id="pa">0.0 <span class="unit">VA</span></div></div>
+    <div class="card full"><div class="label">Total Energy</div><div class="value" id="e">0.000 <span class="unit">kWh</span></div></div>
+  </div>
+
+  <div class="grid">
+    <div class="card full">
+      <div class="label">Live Graphs</div>
+      <div style="margin-top:8px;">
+        <button class="tab on" data-g="vt" onclick="setGraph('vt',this)">V vs T</button>
+        <button class="tab" data-g="it" onclick="setGraph('it',this)">I vs T</button>
+        <button class="tab" data-g="vi" onclick="setGraph('vi',this)">V vs I</button>
+        <button class="tab" data-g="pt" onclick="setGraph('pt',this)">P vs T</button>
+        <button class="tab" data-g="et" onclick="setGraph('et',this)">E vs T</button>
+      </div>
+      <div style="margin-top:6px;">
+        <button class="rng on" data-r="60s" onclick="setRange('60s',this)">60s</button>
+        <button class="rng" data-r="60m" onclick="setRange('60m',this)">60m</button>
+        <button class="rng" data-r="3h" onclick="setRange('3h',this)">3h</button>
+        <button class="rng" data-r="12h" onclick="setRange('12h',this)">12h</button>
+        <button class="rng" data-r="24h" onclick="setRange('24h',this)">24h</button>
+        <button class="rng" data-r="30d" onclick="setRange('30d',this)">30d</button>
+      </div>
+      <canvas id="chart" width="660" height="300"></canvas>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card full">
+      <div class="label">Energy Bill / Summary</div>
+      <table>
+        <tr><td>Today</td><td id="bToday">0.000 kWh</td></tr>
+        <tr><td>This Month</td><td id="bMonth">0.000 kWh</td></tr>
+        <tr><td>Total Energy</td><td id="bEnergy">0.000 kWh</td></tr>
+        <tr><td>Rate</td><td id="bRate">&#8377;7.00 /kWh</td></tr>
+        <tr class="total"><td>TOTAL BILL</td><td id="bTotal">&#8377;0.00</td></tr>
+      </table>
+      <div style="margin-top:10px;">
+        <button class="on" onclick="location.href='/download'">Excel (CSV)</button>
+        <button onclick="location.href='/storage/'" style="background: #c084fc;">📁 View Storage</button>
+        <button id="relayBtn" onclick="toggleRelay()">Relay: OFF</button>
+        <button class="reset" onclick="resetEnergy()">Reset</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ===== Fetch API loop (WebSockets kaafi ho gaye, MQTT bridge ab Python ka kaam) =====
+    var curGraph = 'vt', curRange = '60s', hist = null;
+
+    // Browser-side history: har poll ka sample yahan accumulate hota hai,
+    // graphs isi se bante hain (ESP32 pe ring buffers nahi hain ab).
+    var samples = [];   // {t, v, i, p, e}  — e = cumulative energyTotal
+    var MAX_SAMPLES = 5000;  // ~83 min at 1 Hz — RAM is not a problem for the phone
+
+    // --- Live data polling (har 1 second) ---
+    setInterval(() => {
+      fetch('/data')
+        .then(response => response.json())
+        .then(data => {
+          applyData(data);
+          checkFault(data);
+          if (data.voltage !== undefined) {
+            samples.push({
+              t: data.now > 0 ? data.now : Math.floor(Date.now() / 1000),
+              v: data.voltage, i: data.current,
+              p: data.power, e: data.energy
+            });
+            if (samples.length > MAX_SAMPLES) samples.splice(0, samples.length - MAX_SAMPLES);
+          }
+          requestHist();   // graphs ko fresh hist do
+        })
+        .catch(err => console.log("Waiting for data..."));
+    }, 1000);
+
+    // ESP32 ka clock phone se sync karo (baar-baar, kyunki ESP32 RTC drift karta hai)
+    setInterval(() => {
+      fetch('/cmd/TIME:' + Math.floor(Date.now() / 1000)).catch(() => {});
+    }, 300000);
+    fetch('/cmd/TIME:' + Math.floor(Date.now() / 1000)).catch(() => {});
+
+    // --- Commands → Flask → MQTT → ESP32 ---
+    function toggleRelay() {
+      fetch('/cmd/TOGGLE').catch(() => {});
+    }
+
+    function resetEnergy() {
+      if (!confirm('Reset all energy counters and bill?')) return;
+      fetch('/cmd/RESET').catch(() => {});
+    }
+
+    // --- UI Alert for the Smart Switchgear Fault ---
+    function checkFault(data) {
+      let statusBanner = document.getElementById('status');
+      let banner = document.getElementById('faultBanner');
+      if (data.fault) {
+        statusBanner.innerHTML = "<span style='color: #ff4d4d; font-weight: bold; font-size: 1.2em;'>&#9888;&#65039; FAULT DETECTED: RELAY TRIPPED &#9888;&#65039;</span>";
+        document.body.classList.add('fault-active');   // Red border warning
+        banner.style.display = 'block';                // Flashing banner
+      } else {
+        statusBanner.innerText = "System Normal";
+        document.body.classList.remove('fault-active');
+        banner.style.display = 'none';
+      }
+    }
+
+    function applyData(d) {
+      document.getElementById('v').innerHTML  = d.voltage.toFixed(1) + ' <span class="unit">V</span>';
+      document.getElementById('i').innerHTML  = d.current.toFixed(2) + ' <span class="unit">A</span>';
+      document.getElementById('p').innerHTML  = d.power.toFixed(1) + ' <span class="unit">W</span>';
+      document.getElementById('pa').innerHTML = d.apparent.toFixed(1) + ' <span class="unit">VA</span>';
+      document.getElementById('pf').innerText = d.pf.toFixed(2);
+      document.getElementById('e').innerHTML  = d.energy.toFixed(3) + ' <span class="unit">kWh</span>';
+      if (d.now > 0) {
+        var dt = new Date(d.now * 1000);
+        document.getElementById('clock').innerText = dt.toLocaleDateString() + ' ' + dt.toLocaleTimeString();
+      } else document.getElementById('clock').innerText = 'sync pending...';
+      document.getElementById('sdstat').innerText = d.sd ? 'OK' : 'NO CARD';
+      document.getElementById('bToday').innerText  = d.today.toFixed(3) + ' kWh';
+      document.getElementById('bMonth').innerText  = d.month.toFixed(3) + ' kWh';
+      document.getElementById('bEnergy').innerText = d.energy.toFixed(3) + ' kWh';
+      document.getElementById('bTotal').innerText  = '\u20B9' + d.cost.toFixed(2);
+      const btn = document.getElementById('relayBtn');
+      btn.innerText = d.relay ? 'Relay: ON' : 'Relay: OFF';
+      btn.className = d.relay ? 'on' : '';
+    }
+
+    // ============ Client-side history builder (graphs ke liye) ============
+    // ESP32 se sirf live JSON aata hai, to phone/browser me hi bucket banao.
+    var RANGE_CFG = {
+      '60s': { bucket: 1,    count: 60  },
+      '60m': { bucket: 60,   count: 60  },
+      '3h' : { bucket: 60,   count: 180 },
+      '12h': { bucket: 3600, count: 12  },
+      '24h': { bucket: 3600, count: 24  },
+      '30d': { bucket: 3600, count: 720 }
+    };
+
+    function requestHist() {
+      var cfg = RANGE_CFG[curRange];
+      if (!cfg || samples.length === 0) return;
+      var windowSec = cfg.bucket * cfg.count;
+      var nowT = samples[samples.length - 1].t;
+      var startT = nowT - windowSec;
+
+      var buckets = new Array(cfg.count);
+      for (var b = 0; b < cfg.count; b++) buckets[b] = { n: 0, v: 0, i: 0, p: 0, e0: null, e1: null, t: 0 };
+
+      for (var k = 0; k < samples.length; k++) {
+        var s = samples[k];
+        if (s.t < startT) continue;
+        var bi = Math.floor((s.t - startT) / cfg.bucket);
+        if (bi < 0 || bi >= cfg.count) continue;
+        var bk = buckets[bi];
+        bk.n++; bk.v += s.v; bk.i += s.i; bk.p += s.p;
+        if (bk.e0 === null || s.e < bk.e0) bk.e0 = s.e;   // bucket me kitna energy kharcha hua
+        if (bk.e1 === null || s.e > bk.e1) bk.e1 = s.e;
+        bk.t = startT + bi * cfg.bucket;
+      }
+
+      hist = { type: 'hist', range: curRange, step: cfg.bucket, t: [], v: [], i: [], p: [], e: [] };
+      for (b = 0; b < cfg.count; b++) {
+        if (buckets[b].n === 0) continue;
+        hist.t.push(buckets[b].t);
+        hist.v.push(buckets[b].v / buckets[b].n);
+        hist.i.push(buckets[b].i / buckets[b].n);
+        hist.p.push(buckets[b].p / buckets[b].n);
+        hist.e.push(buckets[b].e1 !== null ? Math.max(0, buckets[b].e1 - buckets[b].e0) : 0);
+      }
+      render();
+    }
+
+    function setGraph(g, el) {
+      curGraph = g;
+      document.querySelectorAll('button.tab').forEach(b => b.classList.remove('on'));
+      el.classList.add('on');
+      render();
+    }
+
+    function setRange(r, el) {
+      curRange = r;
+      document.querySelectorAll('button.rng').forEach(b => b.classList.remove('on'));
+      el.classList.add('on');
+      requestHist();
+    }
+
+    function shortLabel(i) {
+      if (!hist) return '';
+      var n = hist.t.length;
+      if (i >= n) return '';
+      var d = new Date(hist.t[i] * 1000);
+      if (curRange === '30d' || curRange === '24h' || curRange === '12h')
+        return d.toLocaleDateString(undefined, {day:'numeric', month:'short'}) + ' ' + d.toLocaleTimeString(undefined,{hour:'2-digit'});
+      return d.toLocaleTimeString();
+    }
+
+    function drawLine(data, color, unitName) {
+      var c = document.getElementById('chart'), x = c.getContext('2d');
+      var W = c.width, H = c.height, pL = 52, pR = 14, pT = 16, pB = 32;
+      x.clearRect(0, 0, W, H);
+      if (!data || data.length < 2) {
+        x.fillStyle = '#a0c4ff'; x.font = '14px Arial'; x.textAlign = 'center';
+        x.fillText('Collecting data... (thoda wait karo)', W / 2, H / 2); x.textAlign = 'left'; return;
+      }
+      var n = data.length, mn = Infinity, mx = -Infinity, k;
+      for (k = 0; k < n; k++) { if (data[k] < mn) mn = data[k]; if (data[k] > mx) mx = data[k]; }
+      if (mx - mn < 1e-9) { mx = mn + 1; }
+      var pd = (mx - mn) * 0.12; mn -= pd; mx += pd;
+
+      x.font = '11px Arial';
+      for (var g = 0; g <= 4; g++) {
+        var y = pT + (H - pT - pB) * g / 4;
+        x.strokeStyle = 'rgba(255,255,255,0.10)';
+        x.beginPath(); x.moveTo(pL, y); x.lineTo(W - pR, y); x.stroke();
+        x.fillStyle = '#a0c4ff';
+        var dec = (unitName === 'A') ? 3 : (unitName === 'kWh' ? 3 : 1);
+        x.fillText((mx - (mx - mn) * g / 4).toFixed(dec) + (g === 0 ? ' ' + unitName : ''), 5, y + 4);
+      }
+      x.fillStyle = '#7ea8e0';
+      for (g = 0; g <= 4; g++) {
+        var i = Math.round((n - 1) * g / 4);
+        x.fillText(shortLabel(i), pL + (W - pL - pR) * g / 4 - 24, H - 10);
+      }
+      x.strokeStyle = color; x.lineWidth = 2; x.beginPath();
+      for (k = 0; k < n; k++) {
+        var px = pL + (W - pL - pR) * (k / (n - 1));
+        var py = pT + (H - pT - pB) * (1 - (data[k] - mn) / (mx - mn));
+        k === 0 ? x.moveTo(px, py) : x.lineTo(px, py);
+      }
+      x.stroke();
+    }
+
+    function drawScatter(xs, ys) {
+      var c = document.getElementById('chart'), x = c.getContext('2d');
+      var W = c.width, H = c.height, pL = 52, pR = 14, pT = 16, pB = 32;
+      x.clearRect(0, 0, W, H);
+      if (!xs || xs.length < 2) {
+        x.fillStyle = '#a0c4ff'; x.font = '14px Arial'; x.textAlign = 'center';
+        x.fillText('Collecting data...', W / 2, H / 2); x.textAlign = 'left'; return;
+      }
+      var n = xs.length, mnx = Infinity, mxx = -Infinity, mny = Infinity, mxy = -Infinity, k;
+      for (k = 0; k < n; k++) {
+        if (xs[k] < mnx) mnx = xs[k]; if (xs[k] > mxx) mxx = xs[k];
+        if (ys[k] < mny) mny = ys[k]; if (ys[k] > mxy) mxy = ys[k];
+      }
+      if (mxx - mnx < 1e-6) mxx = mnx + 1;
+      if (mxy - mny < 1e-6) mxy = mny + 1;
+      x.font = '11px Arial'; x.fillStyle = '#a0c4ff';
+      for (var g = 0; g <= 4; g++) {
+        var yy = pT + (H - pT - pB) * g / 4;
+        x.strokeStyle = 'rgba(255,255,255,0.10)';
+        x.beginPath(); x.moveTo(pL, yy); x.lineTo(W - pR, yy); x.stroke();
+        x.fillText((mxy - (mxy - mny) * g / 4).toFixed(0) + 'V', 8, yy + 4);
+        var xv = mnx + (mxx - mnx) * g / 4;
+        x.fillText(xv.toFixed(3) + 'A', pL + (W - pL - pR) * g / 4 - 14, H - 10);
+      }
+      x.fillStyle = '#ff6b9d';
+      for (k = 0; k < n; k++) {
+        var px = pL + (W - pL - pR) * ((xs[k] - mnx) / (mxx - mnx));
+        var py = pT + (H - pT - pB) * (1 - (ys[k] - mny) / (mxy - mny));
+        x.beginPath(); x.arc(px, py, 2.5, 0, 6.283); x.fill();
+      }
+    }
+
+    function render() {
+      if (!hist) return;
+      if (curGraph === 'vt') drawLine(hist.v, '#00d9ff', 'V');
+      else if (curGraph === 'it') drawLine(hist.i, '#ffd166', 'A');
+      else if (curGraph === 'pt') drawLine(hist.p, '#0ead69', 'W');
+      else if (curGraph === 'vi') drawScatter(hist.i, hist.v);
+      else if (curGraph === 'et') {
+        var cum = [], s = 0;
+        for (var k = 0; k < hist.e.length; k++) { s += hist.e[k]; cum.push(s); }
+        drawLine(cum, '#c084fc', 'kWh');
+      }
+    }
+
+    // ===== Harmonic / THD panel — Python FFT se har second =====
+    function drawFFTBars(vals) {
+      var c = document.getElementById('fftChart'), x = c.getContext('2d');
+      var W = c.width, H = c.height, pL = 50, pR = 14, pT = 14, pB = 30;
+      x.clearRect(0, 0, W, H);
+      var labels = ['50 Hz (Fund)', '150 Hz (3rd)', '250 Hz (5th)'];
+      var colors = ['#00d9ff', '#ffd166', '#ff6b9d'];
+      var mx = Math.max(vals[0], 0.001);   // fundamental ko full-scale maano
+      x.font = '11px Arial';
+      for (var g = 0; g <= 4; g++) {
+        var y = pT + (H - pT - pB) * g / 4;
+        x.strokeStyle = 'rgba(255,255,255,0.10)';
+        x.beginPath(); x.moveTo(pL, y); x.lineTo(W - pR, y); x.stroke();
+        x.fillStyle = '#a0c4ff';
+        x.fillText((mx * (1 - g / 4)).toFixed(1) + (g === 0 ? ' V' : ''), 6, y + 4);
+      }
+      var slot = (W - pL - pR) / 3, bw = slot * 0.45;
+      for (var i = 0; i < 3; i++) {
+        var cx = pL + slot * (i + 0.5);
+        var bh = (H - pT - pB) * Math.min(vals[i] / mx, 1);
+        x.fillStyle = colors[i];
+        x.fillRect(cx - bw / 2, H - pB - bh, bw, bh);
+        x.textAlign = 'center';
+        x.fillStyle = '#fff';
+        x.fillText(vals[i].toFixed(2) + ' V', cx, H - pB - bh - 6);
+        x.fillStyle = '#7ea8e0';
+        x.fillText(labels[i], cx, H - 9);
+        x.textAlign = 'left';
+      }
+    }
+
+    function pollFFT() {
+      fetch('/fft').then(r => r.json()).then(d => {
+        if (!d.ready) return;
+        var polluted = d.thd > 5;
+        var thdEl = document.getElementById('thd');
+        thdEl.innerHTML = d.thd.toFixed(2) + ' <span class="unit">%</span>';
+        thdEl.style.color = polluted ? '#ff4d4d' : '#00d9ff';
+        var st = document.getElementById('thdStatus');
+        var p3 = d.fund > 0 ? (d.h3 / d.fund * 100) : 0;
+        var p5 = d.fund > 0 ? (d.h5 / d.fund * 100) : 0;
+        st.innerHTML = (polluted ? '\u26A0\uFE0F GRID POLLUTED (THD > 5%)' : 'Grid Clean (THD \u2264 5%)')
+          + ' \u2014 3rd: ' + p3.toFixed(1) + '%, 5th: ' + p5.toFixed(1) + '%';
+        st.style.color = polluted ? '#ff4d4d' : '#0ead69';
+        drawFFTBars([d.fund, d.h3, d.h5]);
+      }).catch(() => {});
+    }
+    setInterval(pollFFT, 1000);
+    pollFFT();
+  </script>
+</body>
+</html>
