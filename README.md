@@ -4,24 +4,12 @@
 
 **IoT-Enabled Digital Energy Metering, Real-Time FFT Harmonic Analysis, and Automated Fault Protection**
 
-<p>
-  <img src="https://img.shields.io/badge/MCU-ESP32-E7352C?style=for-the-badge&logo=espressif&logoColor=white" alt="ESP32" />
-  <img src="https://img.shields.io/badge/Firmware-C%2B%2B%20%2F%20Arduino-00979D?style=for-the-badge&logo=arduino&logoColor=white" alt="Arduino" />
-  <img src="https://img.shields.io/badge/Server-Python%20%2F%20Flask-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python Flask" />
-  <img src="https://img.shields.io/badge/Protocol-MQTT-660066?style=for-the-badge&logo=eclipsemosquitto&logoColor=white" alt="MQTT" />
-  <img src="https://img.shields.io/badge/DSP-NumPy%20FFT-013243?style=for-the-badge&logo=numpy&logoColor=white" alt="NumPy FFT" />
-  <img src="https://img.shields.io/badge/Alerts-Telegram%20Bot-26A5E4?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram" />
-</p>
+![Platform](https://img.shields.io/badge/Platform-ESP32-00979D?style=for-the-badge&logo=espressif&logoColor=white)
+![Backend](https://img.shields.io/badge/Edge_Server-Python_Flask-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![Protocol](https://img.shields.io/badge/Protocol-MQTT-660066?style=for-the-badge&logo=eclipsemosquitto&logoColor=white)
+![Bot](https://img.shields.io/badge/Alerts-Telegram_Bot-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)
 
-<p>
-  <a href="#system-architecture">Architecture</a> &bull;
-  <a href="#step-1-install-git--clone-this-repository">Quick Start</a> &bull;
-  <a href="#step-2-hardware-wiring--pin-diagram">Wiring &amp; Pinout</a> &bull;
-  <a href="#step-3-arduino-ide-setup--flashing-the-esp32">ESP32 Firmware</a> &bull;
-  <a href="#step-4-create-a-telegram-bot">Telegram Bot</a> &bull;
-  <a href="#step-5-edge-server--mqtt-broker-setup">Edge Server</a> &bull;
-  <a href="#troubleshooting">Troubleshooting</a>
-</p>
+[Overview](#overview) • [Architecture](#system-architecture) • [Wiring & Pin Diagram](#step-2-hardware-wiring--pin-diagram) • [ESP32 Setup](#step-3-arduino-ide-setup--flashing-the-esp32) • [Telegram Bot](#step-4-create-a-telegram-bot) • [Server Setup](#step-5-edge-server--mqtt-broker-setup)
 
 </div>
 
@@ -48,17 +36,17 @@ An **IoT-Enabled Digital Energy Meter and Intelligent Switchgear** built with an
 
 ```mermaid
 flowchart LR
-    subgraph Hardware ["Tier 1: Embedded Sensing Node (ESP32)"]
-        S1["ZMPT101B & ACS712<br/>(10k/20k Dividers)"] --> ESP["ESP32 Dev Module<br/>True RMS & Switchgear"]
-        ESP --> RLY["5V Relay<br/>Trip >270V / 10A"]
+    subgraph Hardware["Tier 1: Embedded Sensing Node (ESP32)"]
+        S1["ZMPT101B & ACS712<br/>10k / 20k Dividers"] --> ESP["ESP32 Dev Module<br/>True RMS & Switchgear"]
+        ESP --> RLY["5V Relay<br/>Trip over 270V or 10A"]
         ESP --> TFT["1.8 in TFT + SD Card<br/>Local UI & CSV Logs"]
     end
 
-    subgraph Bridge ["Tier 2: Transport"]
+    subgraph Bridge["Tier 2: Transport"]
         MQTT(("Mosquitto<br/>MQTT Broker"))
     end
 
-    subgraph Edge ["Tier 3: Edge Server (PC / Android Termux)"]
+    subgraph Edge["Tier 3: Edge Server (PC / Android Termux)"]
         PY["server.py<br/>Flask + NumPy rFFT"]
         WEB["Web Dashboard<br/>index.html"]
         TG["Telegram Bot<br/>Alerts & Controls"]
@@ -66,8 +54,8 @@ flowchart LR
         PY <--> TG
     end
 
-    ESP <-- "Wi-Fi JSON / Waveform / Cmds" --> MQTT
-    MQTT <-- "Localhost 1883" --> PY
+    ESP <-->|"Wi-Fi JSON / Waveform / Cmds"| MQTT
+    MQTT <-->|"Localhost 1883"| PY
 ```
 
 ### Project Structure
@@ -90,9 +78,7 @@ ESP32_Energy_Meter/
 If you already have Git installed, skip straight to **Clone the Repository**.
 
 <details>
-<summary><strong>Click to expand: Install Git (Windows &amp; Linux)</strong></summary>
-
-<br>
+<summary><strong>Click to view Git installation commands (Windows & Linux)</strong></summary>
 
 * **Windows (`winget` in PowerShell / Command Prompt):**
   ```powershell
@@ -137,16 +123,14 @@ cd ESP32_Energy_Meter
 > **MAINS SAFETY WARNING:** The HLK-5M05 input, ZMPT101B primary, ACS712 load path, and Relay `COM`/`NO` terminals carry **lethal 230 V AC mains voltage**. Never touch the circuit while plugged into AC mains, and keep high-voltage wiring strictly isolated from the 5 V / 3.3 V ESP32 side.
 
 <div align="center">
-
-<a href="https://sites.google.com/view/esp32-energy-meter-pin-diagram/full-page-embed" target="_blank">
-  <img src="https://img.shields.io/badge/Interactive_Pin_Diagram-Open_Full_Page_Embed-00B4D8?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Open Interactive Pin Diagram" />
-</a>
-
-<br><br>
-
-<img src="./pin_diagram.png" alt="ESP32 Energy Meter Pin Diagram" width="100%" />
-
+  <img src="./pin_diagram.png" alt="ESP32 Energy Meter Pin Diagram" width="100%" />
+  <br/><br/>
+  <a href="https://sites.google.com/view/esp32-energy-meter-pin-diagram/full-page-embed">
+    <img src="https://img.shields.io/badge/Open_Interactive_Pin_Diagram-Click_Here-22d3ee?style=for-the-badge" alt="Interactive Pin Diagram" />
+  </a>
 </div>
+
+<br/>
 
 ### Complete Pin Mapping Reference
 
@@ -201,8 +185,8 @@ Open **Tools -> Manage Libraries** (Library Manager) and install:
 > **Lazy Shortcut:** If you're lazy like me, don't even edit the Wi-Fi credentials in `code.cpp`—just set your phone hotspot name to **`PALASHシ`** and password to **`PALASH69`**.
 
 4. Verify `mqtt_server`:
-   - **Android phone hotspot:** `192.168.43.1` usually works out of the box.
-   - **Windows / Linux PC:** Replace `192.168.43.1` with your PC's local IP address (`ipconfig` on Windows, `ip a` on Linux).
+   * **Android phone hotspot:** `192.168.43.1` usually works out of the box.
+   * **Windows / Linux PC:** Replace `192.168.43.1` with your PC's local IP address (`ipconfig` on Windows, `ip a` on Linux).
 
 ### 5. Flash to ESP32
 1. Connect your ESP32 via USB.
@@ -237,10 +221,8 @@ Configure your Telegram bot **before** starting `server.py` so fault alerts and 
 
 Expand the guide below for your target platform:
 
-<details open>
+<details>
 <summary><strong>Option A: Linux (Ubuntu / Debian / Arch / Fedora)</strong></summary>
-
-<br>
 
 1. **Install Python, pip, and Mosquitto:**
    ```bash
@@ -277,9 +259,7 @@ Expand the guide below for your target platform:
 </details>
 
 <details>
-<summary><strong>Option B: Windows (10 / 11)</strong></summary>
-
-<br>
+<summary><strong>Option B: Windows (PowerShell + winget)</strong></summary>
 
 1. **Install Python and Mosquitto via `winget`:**
    ```powershell
@@ -320,9 +300,7 @@ Expand the guide below for your target platform:
 </details>
 
 <details>
-<summary><strong>Option C: Android (Termux — Zero PC Required)</strong></summary>
-
-<br>
+<summary><strong>Option C: Android (Termux — Zero-PC Portable Edge Server)</strong></summary>
 
 Running the server directly on your Android phone with its Mobile Hotspot enabled eliminates the need for any external PC or cloud server.
 
@@ -393,9 +371,3 @@ Open your bot in Telegram and send **`/start`** to subscribe to fault alerts and
 | **TFT shows a blank white screen** | Double-check `User_Setup.h` in `TFT_eSPI` (`ST7735_DRIVER` and pins `CS=15`, `RST=4`, `DC=2`, `MOSI=23`, `SCLK=18`). |
 | **TFT shows `NO` for SD card** | Use a FAT32-formatted micro-SD card (`<= 32 GB`) and verify the `D5` (`SD_CS`) and `D19` (`SD_MISO`) solder joints. |
 | **Telegram bot does not respond** | Confirm the device running `server.py` has internet access and that `BOT_TOKEN` / `BOT_USERNAME` have no trailing spaces. |
-
----
-
-<div align="center">
-  <sub>Built for the Central Calcutta Polytechnic EE Lab &mdash; ESP32 Smart Energy Meter &amp; Intelligent Switchgear</sub>
-</div>
